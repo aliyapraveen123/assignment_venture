@@ -1,0 +1,94 @@
+services:
+  mongodb:
+    image: mongo:7.0
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT: "4000"
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the root .env file}
+      MONGODB_URI: mongodb://mongodb:27017/ai_task_platform
+      REDIS_URL: redis://redis:6379
+      TASK_STREAM_KEY: ai-task-platform:tasks
+      FRONTEND_ORIGIN: http://localhost:8080
+    expose:
+      - "4000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 4s
+      retries: 5
+      start_period: 15s
+
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    environment:
+      MONGODB_URI: mongodb://mongodb:27017/ai_task_platform
+      REDIS_URL: redis://redis:6379
+      TASK_STREAM_KEY: ai-task-platform:tasks
+      TASK_CONSUMER_GROUP: ai-task-platform:workers
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, redis; from pymongo import MongoClient; redis.Redis.from_url(os.environ['REDIS_URL'], socket_connect_timeout=2).ping(); MongoClient(os.environ['MONGODB_URI'], serverSelectionTimeoutMS=2000).admin.command('ping')"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 4s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  mongo-data:
+  redis-data:
