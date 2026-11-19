@@ -55,9 +55,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: ${{ secrets.INFRA_REPOSITORY }}
+          repository: aliyapraveen123/ai-platform-infra
           ref: main
-          token: ${{ secrets.INFRA_REPO_TOKEN }}
+          token: ${{ secrets.AI_INFRA_TOKEN }}
           path: infra
       - name: Set staging image tag
         env:
